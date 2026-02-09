@@ -27,3 +27,5 @@ final_results/
 analysis/output/
 
 models/
+
+llama.cpp/
