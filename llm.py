@@ -39,6 +39,10 @@ AVAILABLE_LLMS = [
     "deepseek-chat",
     "deepseek-coder",
     "deepseek-reasoner",
+    # Local models (OpenAI-compatible API)
+    "local-qwen3-8b",
+    "local-qwen3-8b-q4km",
+    "local-qwen3-235b",
 ]
 
 def create_client(model: str):
@@ -81,6 +85,25 @@ def create_client(model: str):
             api_key=os.environ["OPENROUTER_API_KEY"],
             base_url="https://openrouter.ai/api/v1"
         ), model
+    elif model.startswith("local-"):
+        # Local models via OpenAI-compatible API (vLLM, Ollama, llama.cpp, etc.)
+        local_base_url = os.getenv("LOCAL_LLM_BASE_URL", "http://localhost:8000/v1")
+        local_api_key = os.getenv("LOCAL_LLM_API_KEY", "not-needed")
+        print(f"Using local API at {local_base_url} with model {model}.")
+        client = openai.OpenAI(
+            api_key=local_api_key,
+            base_url=local_base_url
+        )
+        # The actual model name for the API call
+        # Map friendly names to actual GGUF/model names
+        model_mapping = {
+            "qwen3-8b": "Qwen3-8B",
+            "qwen3-8b-q4km": "qwen3-8b-Q4_K_M",  # GGUF Q4_K_M quantized
+            "qwen3-235b": "Qwen3-235B",
+        }
+        model_key = model.replace("local-", "")
+        client_model = model_mapping.get(model_key, model_key)
+        return client, client_model
     else:
         raise ValueError(f"Model {model} not supported.")
 
@@ -291,6 +314,62 @@ def get_response_from_llm(
         content = response.choices[0].message.content
         new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
         resoning_content = response.choices[0].message.reasoning_content
+    elif model.startswith("local-"):
+        # Local models via OpenAI-compatible API (vLLM, Ollama, llama.cpp, etc.)
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        
+        # Model name mapping for API calls
+        model_mapping = {
+            "qwen3-8b": "Qwen3-8B",
+            "qwen3-8b-q4km": "qwen3-8b-Q4_K_M",
+            "qwen3-235b": "Qwen3-235B",
+        }
+        model_key = model.replace("local-", "")
+        client_model = model_mapping.get(model_key, model_key)
+        
+        # Prepare messages - Qwen3 supports system messages
+        messages = [
+            {"role": "system", "content": system_message},
+            *new_msg_history,
+        ]
+        
+        # Check if this is a thinking/reasoning model
+        is_thinking_model = any(x in model.lower() for x in ["qwen3", "thinking", "reasoner"])
+        
+        if is_thinking_model:
+            # For Qwen3 thinking models, enable thinking mode if supported by the API
+            # llama.cpp server and similar may support this via extra_body
+            extra_body = {}
+            if os.getenv("LOCAL_LLM_ENABLE_THINKING", "true").lower() == "true":
+                extra_body["enable_thinking"] = True
+            # Some servers (like llama.cpp with Qwen3) use different params
+            if os.getenv("LOCAL_LLM_THINKING_BUDGET"):
+                extra_body["reasoning_budget"] = int(os.getenv("LOCAL_LLM_THINKING_BUDGET"))
+            
+            response = client.chat.completions.create(
+                model=client_model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=MAX_OUTPUT_TOKENS,
+                n=1,
+                stop=None,
+                extra_body=extra_body if extra_body else None,
+            )
+        else:
+            response = client.chat.completions.create(
+                model=client_model,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=MAX_OUTPUT_TOKENS,
+                n=1,
+                stop=None,
+            )
+        
+        content = response.choices[0].message.content
+        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+        
+        # Some local APIs may return reasoning content
+        reasoning_content = getattr(response.choices[0].message, 'reasoning_content', None)
     else:
         raise ValueError(f"Model {model} not supported.")
     if print_debug:

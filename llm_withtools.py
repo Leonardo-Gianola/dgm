@@ -10,8 +10,14 @@ from llm import create_client, get_response_from_llm
 from prompts.tooluse_prompt import get_tooluse_prompt
 from tools import load_all_tools
 
-CLAUDE_MODEL = 'bedrock/us.anthropic.claude-3-5-sonnet-20241022-v2:0'
-OPENAI_MODEL = 'o3-mini-2025-01-31'
+# Default models - Change these to switch between cloud and local models
+# Cloud models:
+# CLAUDE_MODEL = 'bedrock/us.anthropic.claude-3-5-sonnet-20241022-v2:0'
+# OPENAI_MODEL = 'o3-mini-2025-01-31'
+
+# Local Qwen3 8B Thinking Q4_K_M quantized model:
+CLAUDE_MODEL = 'local-qwen3-8b-q4km'
+OPENAI_MODEL = 'local-qwen3-8b-q4km'
 
 def process_tool_call(tools_dict, tool_name, tool_input):
     try:
@@ -535,6 +541,14 @@ def chat_with_agent(
         new_msg_history = chat_with_agent_openai(msg, model=model, msg_history=msg_history, logging=logging)
         # Current version does not support cross-model conversion
         # new_msg_history = convert_msg_history(new_msg_history, model=model)
+        new_msg_history = msg_history + new_msg_history
+
+    elif model.startswith('local-'):
+        # Local models use manual tool calling (OpenAI-compatible API without native tool support)
+        new_msg_history = chat_with_agent_manualtools(msg, model=model, msg_history=msg_history, logging=logging)
+        conv_msg_history = convert_msg_history(new_msg_history, model=model)
+        if convert:
+            new_msg_history = conv_msg_history
         new_msg_history = msg_history + new_msg_history
 
     else:

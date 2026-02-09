@@ -25,7 +25,10 @@ from utils.docker_utils import (
 )
 
 dataset = None
-diagnose_model = 'o1-2024-12-17'
+# Diagnose model - change based on your setup
+# Cloud: diagnose_model = 'o1-2024-12-17'
+# Local Qwen3 8B Thinking Q4_K_M:
+diagnose_model = 'local-qwen3-8b-q4km'
 
 def diagnose_problem(entry, commit, root_dir, out_dir, patch_files=[], max_attempts=3, polyglot=False):
     client = create_client(diagnose_model)
